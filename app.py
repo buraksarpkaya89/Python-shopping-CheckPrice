@@ -1,46 +1,57 @@
-import requests
-from bs4 import BeautifulSoup
-import smtplib
-import time
+from requests import get
+from parsel   import Selector
+from smtplib  import SMTP, SMTPException
+from CONFIG   import HEADER, MAIL_ADDR, MAIL_PASS, RECIEVER
+from schedule import every, run_pending
 
-url = input('Urun linkini giriniz ')
+URL   = None
+DEGER = None
 
-headers= {'User-Agent' : 'my user agent(google)'}
-def check_price():
-    page = requests.get(url,headers=headers)
-    soup =BeautifulSoup(page.content,'html.parser')
-    title = soup.find(id ='product-name').get_text().strip()
-    print(title)
-    span = soup.find(id ='offering-price')
-    content = span.attrs.get('content')
-    price = float(content)
+def check_price() -> None:
+    global URL, DEGER
+
+    if not URL:
+        URL = input('Urun linkini giriniz : ')
+
+    product_page = get(URL, headers=HEADER)
+    select       = Selector(product_page.text)
+
+    title = select.xpath("normalize-space(//*[contains(@id, 'product-name')])").get()
+    print(f"\n{title}")
+
+    price = float(select.xpath("//*[contains(@id, 'offering-price')]/@content").get())
     print(price)
-    deger = float(input('Hangi fiyattan asagi dusmesini istiyorsunuz '))
-    
-    if(price<deger):
-        send_mail(title,content)
-        
-    
 
-def send_mail(title,content):
-    sender = 'mail_adresiniz@gmail.com'
-    reciever = input('Email Adresini Giriniz ')
+    if not DEGER:
+        DEGER = float(input('\nHangi fiyattan asagi dusmesini istiyorsunuz : '))
+
+    if (price < DEGER):
+        send_mail(title, price)
+
+def send_mail(product:str, price:float) -> None:
+
     try:
-        server = smtplib.SMTP('smtp.gmail.com',587)
-        server.ehlo()
-        server.starttls()
-        server.login(sender,'gmail app password')
-        subject = title + ' ' + 'Urun Fiyat Dustu. Yeni Fiyat :' + ' ' + content 
-        body = 'Urune bu linkten gidebilirsin' + ' => ' +url
-        mailContent = f"To:{reciever}\nFrom:{sender}\nSubject:{subject}\n\n{body}"
-        server.sendmail(sender,reciever,mailContent)
-        print('Mail Gonderildi')
-    except smtplib.SMTPException as e:
+        mail_server = SMTP('smtp.gmail.com', 587, timeout=60)
+        mail_server.ehlo()
+        mail_server.starttls()
+        mail_server.login(MAIL_ADDR, MAIL_PASS)
+
+        subject = f"{product} Urun Fiyat Dustu. Yeni Fiyat : {price}"
+        body    = f"Urune bu linkten gidebilirsin => {URL}"
+        content = f"To:{RECIEVER}\nFrom:{MAIL_ADDR}\nSubject:{subject}\n\n{body}"
+
+        mail_server.sendmail(MAIL_ADDR, RECIEVER, content)
+
+        print('Mail Gonderildi!')
+    except SMTPException as e:
         print(e)
-        
     finally:
-        server.quit()
-        
-while(1):
+        mail_server.quit()
+
+if __name__ == '__main__':
     check_price()
-    time.sleep(60*60)
+
+    every(1).hours.do(check_price)
+
+    while True:
+        run_pending()
